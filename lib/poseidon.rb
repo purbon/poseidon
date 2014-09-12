@@ -3,6 +3,7 @@ require 'socket'
 require 'zlib'
 require 'thread'
 require 'set'
+require 'logger'
 
 # Top level Poseidon namespace
 #
@@ -87,8 +88,8 @@ module Poseidon
   private
   def self.null_logger
     devnull = RUBY_PLATFORM =~ /w32/ ? 'nul' : '/dev/null'
-    l = Logger.new(devnull)
-    l.level = Logger::INFO
+    l = ::Logger.new(devnull)
+    l.level = ::Logger::INFO
     l
   end
 end
