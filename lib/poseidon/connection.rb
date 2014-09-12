@@ -6,6 +6,7 @@ module Poseidon
     include Protocol
 
     class ConnectionFailedError < StandardError; end
+    class TimeoutException < Exception; end
 
     API_VERSION = 0
     REPLICA_ID = -1 # Replica id is always -1 for non-brokers
@@ -99,15 +100,15 @@ module Poseidon
     end
 
     def read_response(response_class)
-      r = @socket.read(4)
+      r = ensure_socket_read 4
       if r.nil?
         raise_connection_failed_error
       end
       n = r.unpack("N").first
-      s = @socket.read(n)
+      s = ensure_socket_read n
       buffer = Protocol::ResponseBuffer.new(s)
       response_class.read(buffer)
-    rescue Errno::ECONNRESET, SocketError
+    rescue Errno::ECONNRESET, SocketError, TimeoutException
       @socket = nil
       raise_connection_failed_error
     end
@@ -129,6 +130,15 @@ module Poseidon
         @client_id
       )
     end
+
+    def ensure_socket_read(n, timeout=5)
+      if IO.select([@socket], nil, nil, timeout)
+        @socket.read(n)
+      else
+        raise TimeoutException, "Host #{@host}:#{@port} unavailable after timeout of #{timeout} s"
+      end
+    end
+
 
     def next_correlation_id
       @correlation_id ||= 0
