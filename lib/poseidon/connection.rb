@@ -6,6 +6,7 @@ module Poseidon
     include Protocol
 
     class ConnectionFailedError < StandardError; end
+    class TimeoutException < Exception; end
 
     API_VERSION = 0
     REPLICA_ID = -1 # Replica id is always -1 for non-brokers
@@ -99,26 +100,42 @@ module Poseidon
     end
 
     def read_response(response_class)
-      r = @socket.read(4)
+      r = ensure_read_or_timeout(4, 5)
       if r.nil?
         raise ConnectionFailedError
       end
       n = r.unpack("N").first
-      s = @socket.read(n)
+      s = ensure_read_or_timeout(n, 5)
       buffer = Protocol::ResponseBuffer.new(s)
       response_class.read(buffer)
-    rescue Errno::ECONNRESET
+    rescue Errno::ECONNRESET, TimeoutException
       @socket = nil
       raise ConnectionFailedError
+    end
+
+    def ensure_read_or_timeout(maxlen, timeout)
+      if IO.select([@socket], nil, nil, timeout)
+         @socket.read(maxlen)
+      else
+         raise TimeoutException.new
+      end
     end
 
     def send_request(request)
       buffer = Protocol::RequestBuffer.new
       request.write(buffer)
-      @socket.write([buffer.to_s.bytesize].pack("N") + buffer.to_s)
-    rescue Errno::EPIPE, Errno::ECONNRESET
+      ensure_write_or_timeout([buffer.to_s.bytesize].pack("N") + buffer.to_s, 5)
+    rescue Errno::EPIPE, Errno::ECONNRESET, TimeoutException
       @socket = nil
       raise ConnectionFailedError
+    end
+
+    def ensure_write_or_timeout(data, timeout)
+      if IO.select(nil, [@socket], nil, timeout)
+        @socket.write(data)
+      else
+        raise TimeoutException.new
+      end
     end
 
     def request_common(request_type)
