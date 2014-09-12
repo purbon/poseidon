@@ -36,15 +36,15 @@ module Poseidon
     # @param [Integer] timeout
     # @param [Array<Protocol::MessagesForTopics>] messages_for_topics Messages to send
     # @return [ProduceResponse]
-    def produce(required_acks, timeout, messages_for_topics)
+    def produce(required_acks, timeout, socket_timeout, messages_for_topics)
       ensure_connected
       req = ProduceRequest.new( request_common(:produce),
                                 required_acks,
                                 timeout,
                                 messages_for_topics) 
-      send_request(req)
+      send_request(req, socket_timeout)
       if required_acks != 0
-        read_response(ProduceResponse)
+        read_response(ProduceResponse, socket_timeout)
       else
         true
       end
@@ -99,13 +99,13 @@ module Poseidon
       end
     end
 
-    def read_response(response_class)
-      r = ensure_read_or_timeout(4, 5)
+    def read_response(response_class, timeout=60)
+      r = ensure_read_or_timeout(4, timeout)
       if r.nil?
         raise ConnectionFailedError
       end
       n = r.unpack("N").first
-      s = ensure_read_or_timeout(n, 5)
+      s = ensure_read_or_timeout(n, timeout)
       buffer = Protocol::ResponseBuffer.new(s)
       response_class.read(buffer)
     rescue Errno::ECONNRESET, TimeoutException
@@ -121,10 +121,10 @@ module Poseidon
       end
     end
 
-    def send_request(request)
+    def send_request(request, timeout=60)
       buffer = Protocol::RequestBuffer.new
       request.write(buffer)
-      ensure_write_or_timeout([buffer.to_s.bytesize].pack("N") + buffer.to_s, 5)
+      ensure_write_or_timeout([buffer.to_s.bytesize].pack("N") + buffer.to_s, timeout)
     rescue Errno::EPIPE, Errno::ECONNRESET, TimeoutException
       @socket = nil
       raise ConnectionFailedError
